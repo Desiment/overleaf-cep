@@ -1,0 +1,63 @@
+name: Build Overleaf image
+
+on:
+  push:
+    branches:
+      - production
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  BASE_IMAGE: ghcr.io/desiment/overleaf-cep-base
+  IMAGE: ghcr.io/desiment/overleaf-cep
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Login to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | docker login ghcr.io \
+                -u "${{ github.actor }}" \
+                --password-stdin
+
+      - name: Prepare Docker context
+        run: cp server-ce/.dockerignore .dockerignore
+
+      - name: Pull base image
+        run: docker pull "${BASE_IMAGE}:production"
+
+      - name: Pull previous image for cache
+        continue-on-error: true
+        run: docker pull "${IMAGE}:production"
+
+      - name: Build Overleaf image
+        run: |
+          docker build \
+            --build-arg BUILDKIT_INLINE_CACHE=1 \
+            --build-arg OVERLEAF_BASE_TAG="${BASE_IMAGE}:production" \
+            --cache-from "${IMAGE}:production" \
+            --progress=plain \
+            --network=host \
+            --file server-ce/Dockerfile \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            --label "com.overleaf.ce.revision=${GITHUB_SHA}" \
+            --tag "${IMAGE}:sha-${GITHUB_SHA}" \
+            --tag "${IMAGE}:production" \
+            .
+
+      - name: Push Overleaf image
+        run: |
+          docker push "${IMAGE}:sha-${GITHUB_SHA}"
+          docker push "${IMAGE}:production"
