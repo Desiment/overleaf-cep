@@ -36,7 +36,9 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable
       - name: Document updater unit tests
-        run: yarn workspace @overleaf/document-updater test:unit:_run
+        env:
+          TEST_NAME_PATTERN: DocumentManager
+        run: yarn workspace @overleaf/document-updater test:unit
       - name: Authentication unit tests
         run: yarn workspace @overleaf/web test:unit --run test/unit/src/Authentication/AuthenticationManager.test.mjs
       - name: Password settings frontend tests
