@@ -39,9 +39,10 @@ jobs:
       - name: Authentication unit tests
         run: yarn workspace @overleaf/web test:unit --run test/unit/src/Authentication/AuthenticationManager.test.mjs
       - name: Password settings frontend tests
-        env:
-          TEST_NAME_PATTERN: PasswordSection
-        run: yarn workspace @overleaf/web test:frontend
+        run: >-
+          yarn workspace @overleaf/web exec mocha --timeout 5000 --exit
+          --extension js,jsx,mjs,ts,tsx --require test/frontend/bootstrap.js
+          test/frontend/features/settings/components/password-section.test.tsx
 
   build:
     if: github.ref == 'refs/heads/production'
