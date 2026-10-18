@@ -144,7 +144,7 @@ describe('AuthenticationManager', function () {
       })
 
       describe('when the password contains control characters', function () {
-        it('should escape control characters before comparing', async function (ctx) {
+        it('should compare control characters without transforming them', async function (ctx) {
           const { user } =
             await ctx.AuthenticationManager.promises.authenticate(
               { email: ctx.email },
@@ -155,7 +155,7 @@ describe('AuthenticationManager', function () {
           expect(user).to.equal(null)
         })
 
-        it('should escape zero-width spaces before comparing', async function (ctx) {
+        it('should compare zero-width spaces without transforming them', async function (ctx) {
           const { user } =
             await ctx.AuthenticationManager.promises.authenticate(
               { email: ctx.email },
@@ -271,40 +271,24 @@ describe('AuthenticationManager', function () {
         expect(hashedPassword).to.match(/^\$2a\$04\$[a-zA-Z0-9/.]{53}$/)
       })
 
-      it('should escape control characters before hashing so login matches', async function (ctx) {
-        ctx.settings.passwordStrengthOptions = { allowAnyChars: true }
-        await ctx.AuthenticationManager.promises.setUserPasswordInV2(
-          ctx.user,
-          'test\u0000password'
-        )
-        const { hashedPassword } = ctx.db.users.updateOne.lastCall.args[1].$set
-
-        const matchEscaped = await bcrypt.compare(
-          'test\\u0000password',
-          hashedPassword
-        )
-        expect(matchEscaped).to.equal(true)
-
-        const matchRaw = await bcrypt.compare(
-          'test\u0000password',
-          hashedPassword
-        )
-        expect(matchRaw).to.equal(false)
+      it('should reject control characters before hashing', async function (ctx) {
+        await expect(
+          ctx.AuthenticationManager.promises.setUserPasswordInV2(
+            ctx.user,
+            'test\u0000password'
+          )
+        ).to.be.rejectedWith('password contains an invalid character')
+        expect(ctx.db.users.updateOne.called).to.equal(false)
       })
 
-      it('should escape zero-width characters before hashing', async function (ctx) {
-        ctx.settings.passwordStrengthOptions = { allowAnyChars: true }
+      it('should hash printable ASCII passwords without transforming them', async function (ctx) {
+        const password = " space ' quote \" backtick ` slash \\ "
         await ctx.AuthenticationManager.promises.setUserPasswordInV2(
           ctx.user,
-          'test\u200bpassword'
+          password
         )
         const { hashedPassword } = ctx.db.users.updateOne.lastCall.args[1].$set
-
-        const matchEscaped = await bcrypt.compare(
-          'test\\u200bpassword',
-          hashedPassword
-        )
-        expect(matchEscaped).to.equal(true)
+        expect(await bcrypt.compare(password, hashedPassword)).to.equal(true)
       })
     })
   })
@@ -313,6 +297,12 @@ describe('AuthenticationManager', function () {
     it('should block too long passwords', async function (ctx) {
       await expect(
         ctx.AuthenticationManager.promises.hashPassword('x'.repeat(100))
+      ).to.be.rejectedWith('password is too long')
+    })
+
+    it('should count UTF-8 bytes when checking bcrypt length', async function (ctx) {
+      await expect(
+        ctx.AuthenticationManager.promises.hashPassword('£'.repeat(37))
       ).to.be.rejectedWith('password is too long')
     })
   })
@@ -683,8 +673,8 @@ describe('AuthenticationManager', function () {
           }
         })
 
-        it('should reject passwords that are too short', function (ctx) {
-          const result = ctx.AuthenticationManager.validatePassword('012345678')
+        it('should retain the fixed minimum length', function (ctx) {
+          const result = ctx.AuthenticationManager.validatePassword('0123456')
 
           expect(result).to.be.an.instanceOf(
             AuthenticationErrors.InvalidPasswordError
@@ -693,15 +683,16 @@ describe('AuthenticationManager', function () {
           expect(result.info.code).to.equal('too_short')
         })
 
-        it('should accept passwords of exactly minimum length', function (ctx) {
+        it('should accept eight-character passwords', function (ctx) {
           expect(
-            ctx.AuthenticationManager.validatePassword('0123456789')
+            ctx.AuthenticationManager.validatePassword('01234567')
           ).to.equal(null)
         })
 
-        it('should reject passwords that are too long', function (ctx) {
-          const result =
-            ctx.AuthenticationManager.validatePassword('0123456789abc')
+        it('should reject passwords longer than 72 bytes', function (ctx) {
+          const result = ctx.AuthenticationManager.validatePassword(
+            '0'.repeat(73)
+          )
 
           expect(result).to.be.an.instanceOf(
             AuthenticationErrors.InvalidPasswordError
@@ -710,9 +701,9 @@ describe('AuthenticationManager', function () {
           expect(result.info.code).to.equal('too_long')
         })
 
-        it('should accept passwords of exactly maximum length', function (ctx) {
+        it('should accept passwords of exactly 72 bytes', function (ctx) {
           expect(
-            ctx.AuthenticationManager.validatePassword('0123456789ab')
+            ctx.AuthenticationManager.validatePassword('0'.repeat(72))
           ).to.equal(null)
         })
       })
@@ -741,86 +732,30 @@ describe('AuthenticationManager', function () {
     })
 
     describe('allowed characters', function () {
-      describe('with the default settings for allowed characters', function () {
-        it('should allow passwords with valid characters', function (ctx) {
+      it('should allow all printable ASCII characters', function (ctx) {
+        for (let code = 0x20; code <= 0x7e; code++) {
           expect(
             ctx.AuthenticationManager.validatePassword(
-              'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
+              `${String.fromCharCode(code)}password`
             )
           ).to.equal(null)
-          expect(
-            ctx.AuthenticationManager.validatePassword(
-              '1234567890@#$%^&*()-_=+[]{};:<>/?!£€.,'
-            )
-          ).to.equal(null)
-        })
+        }
+      })
 
-        it('should not allow passwords with invalid characters', function (ctx) {
-          const result = ctx.AuthenticationManager.validatePassword(
-            'correct horse battery staple'
-          )
-
+      it('should reject Unicode and control characters', function (ctx) {
+        for (const password of ['password£', 'password\n']) {
+          const result = ctx.AuthenticationManager.validatePassword(password)
           expect(result).to.be.an.instanceOf(
             AuthenticationErrors.InvalidPasswordError
           )
-          expect(result.message).to.equal(
-            'password contains an invalid character'
-          )
           expect(result.info.code).to.equal('invalid_character')
-        })
+        }
       })
 
-      describe('when valid characters are overridden in settings', function () {
-        beforeEach(function (ctx) {
-          ctx.settings.passwordStrengthOptions = {
-            chars: {
-              symbols: ' ',
-            },
-          }
-        })
-
-        it('should allow passwords with valid characters', function (ctx) {
-          expect(
-            ctx.AuthenticationManager.validatePassword(
-              'correct horse battery staple'
-            )
-          ).to.equal(null)
-        })
-
-        it('should disallow passwords with invalid characters', function (ctx) {
-          const result = ctx.AuthenticationManager.validatePassword(
-            '1234567890@#$%^&*()-_=+[]{};:<>/?!£€.,'
-          )
-
-          expect(result).to.be.an.instanceOf(
-            AuthenticationErrors.InvalidPasswordError
-          )
-          expect(result.message).to.equal(
-            'password contains an invalid character'
-          )
-          expect(result.info.code).to.equal('invalid_character')
-        })
-      })
-
-      describe('when allowAnyChars is set', function () {
-        beforeEach(function (ctx) {
-          ctx.settings.passwordStrengthOptions = {
-            allowAnyChars: true,
-          }
-        })
-
-        it('should allow any characters', function (ctx) {
-          expect(
-            ctx.AuthenticationManager.validatePassword(
-              'correct horse battery staple'
-            )
-          ).to.equal(null)
-          expect(
-            ctx.AuthenticationManager.validatePassword(
-              '1234567890@#$%^&*()-_=+[]{};:<>/?!£€.,'
-            )
-          ).to.equal(null)
-        })
+      it('should not allow settings to widen the printable ASCII range', function (ctx) {
+        ctx.settings.passwordStrengthOptions = { allowAnyChars: true }
+        const result = ctx.AuthenticationManager.validatePassword('password£')
+        expect(result.info.code).to.equal('invalid_character')
       })
     })
   })

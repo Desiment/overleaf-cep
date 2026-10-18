@@ -72,7 +72,6 @@ function PasswordInnerSection() {
 
 function PasswordForm() {
   const { t } = useTranslation()
-  const passwordStrengthOptions = getMeta('ol-passwordStrengthOptions')
 
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword1, setNewPassword1] = useState('')
@@ -137,7 +136,9 @@ function PasswordForm() {
         label={t('new_password')}
         value={newPassword1}
         handleChange={handleNewPassword1Change}
-        minLength={passwordStrengthOptions?.length?.min || 8}
+        minLength={8}
+        maxLength={72}
+        pattern="[ -~]+"
         autoComplete="new-password"
       />
       <PasswordFormGroup
@@ -218,6 +219,8 @@ type PasswordFormGroupProps = {
   value: string
   handleChange: (event: React.ChangeEvent<HTMLInputElement>) => void
   minLength?: number
+  maxLength?: number
+  pattern?: string
   validationMessage?: string
   autoComplete?: string
 }
@@ -228,6 +231,8 @@ function PasswordFormGroup({
   value,
   handleChange,
   minLength,
+  maxLength,
+  pattern,
   validationMessage: parentValidationMessage,
   autoComplete,
 }: PasswordFormGroupProps) {
@@ -263,6 +268,8 @@ function PasswordFormGroup({
         onInvalid={handleInvalid}
         required={hadInteraction}
         minLength={minLength}
+        maxLength={maxLength}
+        pattern={pattern}
         isInvalid={isInvalid}
       />
       {isInvalid && (

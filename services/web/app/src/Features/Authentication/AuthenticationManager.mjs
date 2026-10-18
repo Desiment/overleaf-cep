@@ -3,7 +3,6 @@ import { User } from '../../models/User.mjs'
 import { db, ObjectId } from '../../infrastructure/mongodb.mjs'
 import bcrypt from 'bcrypt'
 import EmailHelper from '../Helpers/EmailHelper.mjs'
-import { sanitizeControlCharacters } from '../../infrastructure/Sanitize.mjs'
 
 import {
   InvalidEmailError,
@@ -23,6 +22,9 @@ import Metrics from '@overleaf/metrics'
 const BCRYPT_ROUNDS = Settings.security.bcryptRounds || 12
 const BCRYPT_MINOR_VERSION = Settings.security.bcryptMinorVersion || 'a'
 const MAX_SIMILARITY = 0.7
+const MIN_PASSWORD_LENGTH = 8
+const MAX_PASSWORD_BYTES = 72
+const PRINTABLE_ASCII_PASSWORD_RE = /^[\x20-\x7e]+$/
 
 function _exceedsMaximumLengthRatio(password, maxSimilarity, value) {
   const passwordLength = password.length
@@ -39,8 +41,8 @@ const _checkWriteResult = function (result) {
 }
 
 function _validatePasswordNotTooLong(password) {
-  // bcrypt has a hard limit of 72 characters.
-  if (password.length > 72) {
+  // bcrypt has a hard limit of 72 UTF-8 bytes.
+  if (Buffer.byteLength(password, 'utf8') > MAX_PASSWORD_BYTES) {
     return new InvalidPasswordError({
       message: 'password is too long',
       info: { code: 'too_long' },
@@ -115,9 +117,6 @@ const AuthenticationManager = {
   },
 
   async authenticate(query, password, auditLog, { enforceHIBPCheck = true }) {
-    if (typeof password === 'string') {
-      password = sanitizeControlCharacters(password)
-    }
     const { user, match } = await AuthenticationManager._checkUserPassword(
       query,
       password
@@ -201,43 +200,17 @@ const AuthenticationManager = {
 
     Metrics.inc('try-validate-password')
 
-    let allowAnyChars, min, max
-    if (Settings.passwordStrengthOptions) {
-      allowAnyChars = Settings.passwordStrengthOptions.allowAnyChars === true
-      if (Settings.passwordStrengthOptions.length) {
-        min = Settings.passwordStrengthOptions.length.min
-        max = Settings.passwordStrengthOptions.length.max
-      }
-    }
-    allowAnyChars = !!allowAnyChars
-    min = min || 8
-    max = max || 72
-
-    // we don't support passwords > 72 characters in length, because bcrypt truncates them
-    if (max > 72) {
-      max = 72
-    }
-
-    if (password.length < min) {
+    if (password.length < MIN_PASSWORD_LENGTH) {
       return new InvalidPasswordError({
         message: 'password is too short',
         info: { code: 'too_short' },
-      })
-    }
-    if (password.length > max) {
-      return new InvalidPasswordError({
-        message: 'password is too long',
-        info: { code: 'too_long' },
       })
     }
     const passwordLengthError = _validatePasswordNotTooLong(password)
     if (passwordLengthError) {
       return passwordLengthError
     }
-    if (
-      !allowAnyChars &&
-      !AuthenticationManager._passwordCharactersAreValid(password)
-    ) {
+    if (!AuthenticationManager._passwordCharactersAreValid(password)) {
       return new InvalidPasswordError({
         message: 'password contains an invalid character',
         info: { code: 'invalid_character' },
@@ -316,7 +289,6 @@ const AuthenticationManager = {
     if (!user || !user.email || !user._id) {
       throw new Error('invalid user object')
     }
-    password = sanitizeControlCharacters(password)
     const validationError = this.validatePassword(password, user.email)
     if (validationError) {
       throw validationError
@@ -366,32 +338,7 @@ const AuthenticationManager = {
   },
 
   _passwordCharactersAreValid(password) {
-    let digits, letters, lettersUp, symbols
-    if (
-      Settings.passwordStrengthOptions &&
-      Settings.passwordStrengthOptions.chars
-    ) {
-      digits = Settings.passwordStrengthOptions.chars.digits
-      letters = Settings.passwordStrengthOptions.chars.letters
-      lettersUp = Settings.passwordStrengthOptions.chars.letters_up
-      symbols = Settings.passwordStrengthOptions.chars.symbols
-    }
-    digits = digits || '1234567890'
-    letters = letters || 'abcdefghijklmnopqrstuvwxyz'
-    lettersUp = lettersUp || 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-    symbols = symbols || '@#$%^&*()-_=+[]{};:<>/?!£€.,'
-
-    for (let charIndex = 0; charIndex <= password.length - 1; charIndex++) {
-      if (
-        digits.indexOf(password[charIndex]) === -1 &&
-        letters.indexOf(password[charIndex]) === -1 &&
-        lettersUp.indexOf(password[charIndex]) === -1 &&
-        symbols.indexOf(password[charIndex]) === -1
-      ) {
-        return false
-      }
-    }
-    return true
+    return PRINTABLE_ASCII_PASSWORD_RE.test(password)
   },
 
   /**

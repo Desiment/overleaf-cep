@@ -1039,6 +1039,27 @@ describe('ProjectInviteTests', function () {
             done
           )
         })
+
+        it('should allow an invited user with a printable ASCII password to register and accept', function (done) {
+          this.user.password = "Password ' \" ` \\ with spaces"
+          Async.series(
+            [
+              cb => expectInviteRedirectToRegister(this.user, this.link, cb),
+              cb =>
+                expectRegistrationRedirectToInvite(this.user, this.link, cb),
+              cb => expectInvitePage(this.user, this.link, cb),
+              cb =>
+                expectAcceptInviteAndRedirect(
+                  this.user,
+                  this.invite,
+                  this.projectId,
+                  cb
+                ),
+              cb => expectProjectAccess(this.user, this.projectId, cb),
+            ],
+            done
+          )
+        })
       })
 
       describe('registration prompt workflow with non-valid token', function () {
