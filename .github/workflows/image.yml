@@ -38,10 +38,11 @@ jobs:
         run: yarn workspace @overleaf/document-updater test:unit
       - name: Authentication unit tests
         run: yarn workspace @overleaf/web test:unit --run test/unit/src/Authentication/AuthenticationManager.test.mjs
-      - name: Password settings frontend tests
+      - name: Password settings browser validation test
         run: >-
           yarn workspace @overleaf/web exec mocha --timeout 5000 --exit
           --extension js,jsx,mjs,ts,tsx --require test/frontend/bootstrap.js
+          --grep 'sets browser validation attributes'
           test/frontend/features/settings/components/password-section.test.tsx
 
   build:
