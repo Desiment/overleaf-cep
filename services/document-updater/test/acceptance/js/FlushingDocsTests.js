@@ -61,6 +61,38 @@ describe('Flushing a doc to Mongo', function () {
     })
   })
 
+  describe('when the last editor is anonymous', function () {
+    before(async function () {
+      this.project_id = DocUpdaterClient.randomId()
+      this.doc_id = DocUpdaterClient.randomId()
+      this.update = {
+        ...this.update,
+        doc: this.doc_id,
+        meta: { user_id: 'anonymous-user' },
+      }
+      sinon.spy(MockWebApi, 'setDocument')
+
+      MockWebApi.insertDoc(this.project_id, this.doc_id, {
+        lines: this.lines,
+        version: this.version,
+      })
+      await DocUpdaterClient.sendUpdates(this.project_id, this.doc_id, [
+        this.update,
+      ])
+      await setTimeout(200)
+      await DocUpdaterClient.flushDoc(this.project_id, this.doc_id)
+    })
+
+    after(function () {
+      MockWebApi.setDocument.restore()
+    })
+
+    it('should flush the update with a null last author', function () {
+      const lastUpdatedBy = MockWebApi.setDocument.lastCall.args[6]
+      expect(lastUpdatedBy).to.equal(null)
+    })
+  })
+
   describe('when the doc does not exist in the doc updater', function () {
     before(async function () {
       this.project_id = DocUpdaterClient.randomId()

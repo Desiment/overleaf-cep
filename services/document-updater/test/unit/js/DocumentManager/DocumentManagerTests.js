@@ -197,6 +197,32 @@ describe('DocumentManager', function () {
       })
     })
 
+    describe('when the last editor is anonymous', function () {
+      it('persists changes with a null lastUpdatedBy', async function () {
+        this.RedisManager.promises.getDoc.resolves({
+          lines: this.lines,
+          version: this.version,
+          ranges: this.ranges,
+          unflushedTime: this.unflushedTime,
+          lastUpdatedAt: this.lastUpdatedAt,
+          lastUpdatedBy: 'anonymous-user',
+        })
+        await this.DocumentManager.promises.flushDocIfLoaded(
+          this.project_id,
+          this.doc_id
+        )
+        this.PersistenceManager.promises.setDoc.should.have.been.calledWith(
+          this.project_id,
+          this.doc_id,
+          this.lines,
+          this.version,
+          this.ranges,
+          this.lastUpdatedAt,
+          null
+        )
+      })
+    })
+
     describe('when the document is not in Redis', function () {
       beforeEach(async function () {
         this.RedisManager.promises.getDoc.resolves({
