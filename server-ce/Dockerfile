@@ -3,7 +3,7 @@
 # Overleaf Community Edition (overleaf/overleaf)
 # ---------------------------------------------
 
-ARG OVERLEAF_BASE_TAG=sharelatex/sharelatex-base:latest
+ARG OVERLEAF_BASE_TAG=ghcr.io/desiment/overleaf-cep-base@sha256:a3ef61dc2a63eeee574e237702c90dc84819efc63524ac1b8d75c22b5396c06e
 FROM $OVERLEAF_BASE_TAG
 
 WORKDIR /overleaf

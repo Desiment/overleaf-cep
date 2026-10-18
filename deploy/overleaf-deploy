@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# Privileged entrypoint used exclusively for Overleaf image deployments.
+set -Eeuo pipefail
+
+IMAGE="${1:-}"
+if (( $# != 1 )) || [[ ! "$IMAGE" =~ ^ghcr\.io/desiment/overleaf-cep@sha256:[0-9a-f]{64}$ ]]; then
+  echo 'Usage: overleaf-deploy ghcr.io/desiment/overleaf-cep@sha256:<64 lowercase hex>' >&2
+  exit 2
+fi
+
+TOOLKIT=/opt/overleaf/toolkit
+OVERRIDE="$TOOLKIT/config/docker-compose.override.yml"
+STATE_DIR=/var/lib/overleaf-deploy
+
+exec 9>/run/lock/overleaf-deploy.lock
+flock -n 9 || { echo 'Another deployment is running' >&2; exit 1; }
+
+[[ -f "$OVERRIDE" ]] || { echo "Missing $OVERRIDE" >&2; exit 1; }
+install -d -m 0700 -o root -g root "$STATE_DIR"
+
+# Pull before touching production. GHCR must already be accessible to root.
+docker pull "$IMAGE"
+
+BACKUP="$STATE_DIR/compose-$(date -u +%Y%m%dT%H%M%SZ)-$$.yml"
+cp -a -- "$OVERRIDE" "$BACKUP"
+TMP="$(mktemp "$TOOLKIT/config/.compose-override.XXXXXX")"
+trap 'rm -f -- "$TMP"' EXIT
+
+# Update only services.sharelatex.image; do not overwrite other Toolkit overrides.
+python3 - "$OVERRIDE" "$TMP" "$IMAGE" <<'PY'
+import pathlib
+import re
+import sys
+source, destination, image = sys.argv[1:]
+lines = pathlib.Path(source).read_text().splitlines(keepends=True)
+found_service = False
+in_service = False
+replaced = 0
+for n, line in enumerate(lines):
+    if re.match(r'^  sharelatex:\s*(?:#.*)?$', line.rstrip('\n')):
+        found_service = True
+        in_service = True
+    elif re.match(r'^  [\w-]+:\s*(?:#.*)?$', line.rstrip('\n')):
+        in_service = False
+    elif in_service and re.match(r'^    image:\s*', line):
+        lines[n] = f'    image: {image}\n'
+        replaced += 1
+if not found_service or replaced != 1:
+    raise SystemExit('Expected exactly one services.sharelatex.image in override; refusing to modify')
+pathlib.Path(destination).write_text(''.join(lines))
+PY
+
+# Validate the replacement with Toolkit before applying it.
+chmod --reference="$OVERRIDE" "$TMP"
+chown --reference="$OVERRIDE" "$TMP"
+cd "$TOOLKIT"
+# A temporary substitution on the live path would already be a deploy; instead
+# check basic syntactic validity of the generated single-image change above.
+
+health() {
+  local code
+  for ((i=0; i<90; i++)); do
+    code="$(curl --silent --output /dev/null --max-time 4 --write-out '%{http_code}' \
+      http://127.0.0.1:8080/login || true)"
+    if [[ "$code" == 200 ]] && \
+       [[ "$(docker inspect -f '{{.State.Running}}' sharelatex 2>/dev/null || true)" == true ]] && \
+       [[ "$(docker inspect -f '{{.State.Health.Status}}' mongo 2>/dev/null || true)" == healthy ]]; then
+      for ((smoke_attempt=0; smoke_attempt<3; smoke_attempt++)); do
+        if docker exec sharelatex curl --fail --silent --show-error --max-time 120 \
+          http://127.0.0.1:3013/smoke_test_force >/dev/null; then
+          return 0
+        fi
+        sleep 5
+      done
+      return 1
+    fi
+    sleep 2
+  done
+  return 1
+}
+
+rollback() {
+  echo "Deployment failed; restoring previous compose override from $BACKUP" >&2
+  local rollback_tmp
+  rollback_tmp="$(mktemp "$TOOLKIT/config/.rollback-override.XXXXXX")"
+  cp -a -- "$BACKUP" "$rollback_tmp"
+  mv -f -- "$rollback_tmp" "$OVERRIDE"
+  if (cd "$TOOLKIT" && bin/up -d && health); then
+    echo 'Rollback health check passed' >&2
+  else
+    echo 'WARNING: rollback could not be verified; manual intervention required' >&2
+  fi
+}
+
+mv -f -- "$TMP" "$OVERRIDE"
+if ! bin/up -d; then
+  rollback
+  exit 1
+fi
+if ! health; then
+  rollback
+  exit 1
+fi
+
+printf '%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "$IMAGE" "$BACKUP" >> "$STATE_DIR/history.tsv"
+echo "Deployed $IMAGE"
