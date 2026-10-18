@@ -98,6 +98,12 @@ describe('<PasswordSection />', function () {
   })
 
   it('sets browser validation attributes', async function () {
+    window.metaAttributesCache.set('ol-passwordStrengthOptions', {
+      length: {
+        min: 3,
+        max: 100,
+      },
+    })
     render(<PasswordSection />)
 
     const currentPasswordInput = screen.getByLabelText(
@@ -110,7 +116,7 @@ describe('<PasswordSection />', function () {
       'Confirm new password'
     ) as HTMLInputElement
 
-    expect(newPassword1Input.minLength).to.equal(8)
+    expect(newPassword1Input.minLength).to.equal(3)
     expect(newPassword1Input.maxLength).to.equal(72)
     expect(newPassword1Input.pattern).to.equal('[ -~]+')
 

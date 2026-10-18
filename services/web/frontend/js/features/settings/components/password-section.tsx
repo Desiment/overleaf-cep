@@ -72,6 +72,7 @@ function PasswordInnerSection() {
 
 function PasswordForm() {
   const { t } = useTranslation()
+  const passwordStrengthOptions = getMeta('ol-passwordStrengthOptions')
 
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword1, setNewPassword1] = useState('')
@@ -136,8 +137,8 @@ function PasswordForm() {
         label={t('new_password')}
         value={newPassword1}
         handleChange={handleNewPassword1Change}
-        minLength={8}
-        maxLength={72}
+        minLength={passwordStrengthOptions?.length?.min || 8}
+        maxLength={Math.min(passwordStrengthOptions?.length?.max || 72, 72)}
         pattern="[ -~]+"
         autoComplete="new-password"
       />

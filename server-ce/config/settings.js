@@ -437,19 +437,18 @@ if (process.env.OVERLEAF_LANG_DOMAIN_MAPPING != null) {
 
 // Password Settings
 // -----------
-// Passwords are deliberately limited to printable ASCII (validated in the
-// authentication manager), from 8 characters up to bcrypt's 72-byte limit.
-// Do not re-enable the legacy configurable character policy: it allows the
-// frontend and backend validation to diverge.
+// These restrict the passwords users can use when registering
+// opts are from http://antelle.github.io/passfield
 if (
   process.env.OVERLEAF_PASSWORD_VALIDATION_PATTERN ||
   process.env.OVERLEAF_PASSWORD_VALIDATION_MIN_LENGTH ||
   process.env.OVERLEAF_PASSWORD_VALIDATION_MAX_LENGTH
 ) {
   settings.passwordStrengthOptions = {
+    pattern: process.env.OVERLEAF_PASSWORD_VALIDATION_PATTERN || 'aA$3',
     length: {
-      min: 8,
-      max: 72,
+      min: process.env.OVERLEAF_PASSWORD_VALIDATION_MIN_LENGTH || 8,
+      max: process.env.OVERLEAF_PASSWORD_VALIDATION_MAX_LENGTH || 72,
     },
   }
 }

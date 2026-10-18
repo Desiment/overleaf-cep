@@ -673,8 +673,8 @@ describe('AuthenticationManager', function () {
           }
         })
 
-        it('should retain the fixed minimum length', function (ctx) {
-          const result = ctx.AuthenticationManager.validatePassword('0123456')
+        it('should reject passwords that are too short', function (ctx) {
+          const result = ctx.AuthenticationManager.validatePassword('012345678')
 
           expect(result).to.be.an.instanceOf(
             AuthenticationErrors.InvalidPasswordError
@@ -683,16 +683,15 @@ describe('AuthenticationManager', function () {
           expect(result.info.code).to.equal('too_short')
         })
 
-        it('should accept eight-character passwords', function (ctx) {
+        it('should accept passwords of exactly minimum length', function (ctx) {
           expect(
-            ctx.AuthenticationManager.validatePassword('01234567')
+            ctx.AuthenticationManager.validatePassword('0123456789')
           ).to.equal(null)
         })
 
-        it('should reject passwords longer than 72 bytes', function (ctx) {
-          const result = ctx.AuthenticationManager.validatePassword(
-            '0'.repeat(73)
-          )
+        it('should reject passwords that are too long', function (ctx) {
+          const result =
+            ctx.AuthenticationManager.validatePassword('0123456789abc')
 
           expect(result).to.be.an.instanceOf(
             AuthenticationErrors.InvalidPasswordError
@@ -701,9 +700,9 @@ describe('AuthenticationManager', function () {
           expect(result.info.code).to.equal('too_long')
         })
 
-        it('should accept passwords of exactly 72 bytes', function (ctx) {
+        it('should accept passwords of exactly maximum length', function (ctx) {
           expect(
-            ctx.AuthenticationManager.validatePassword('0'.repeat(72))
+            ctx.AuthenticationManager.validatePassword('0123456789ab')
           ).to.equal(null)
         })
       })

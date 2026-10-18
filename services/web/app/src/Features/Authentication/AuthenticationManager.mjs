@@ -22,8 +22,7 @@ import Metrics from '@overleaf/metrics'
 const BCRYPT_ROUNDS = Settings.security.bcryptRounds || 12
 const BCRYPT_MINOR_VERSION = Settings.security.bcryptMinorVersion || 'a'
 const MAX_SIMILARITY = 0.7
-const MIN_PASSWORD_LENGTH = 8
-const MAX_PASSWORD_BYTES = 72
+const MAX_BCRYPT_PASSWORD_BYTES = 72
 const PRINTABLE_ASCII_PASSWORD_RE = /^[\x20-\x7e]+$/
 
 function _exceedsMaximumLengthRatio(password, maxSimilarity, value) {
@@ -42,7 +41,7 @@ const _checkWriteResult = function (result) {
 
 function _validatePasswordNotTooLong(password) {
   // bcrypt has a hard limit of 72 UTF-8 bytes.
-  if (Buffer.byteLength(password, 'utf8') > MAX_PASSWORD_BYTES) {
+  if (Buffer.byteLength(password, 'utf8') > MAX_BCRYPT_PASSWORD_BYTES) {
     return new InvalidPasswordError({
       message: 'password is too long',
       info: { code: 'too_long' },
@@ -200,15 +199,23 @@ const AuthenticationManager = {
 
     Metrics.inc('try-validate-password')
 
-    if (password.length < MIN_PASSWORD_LENGTH) {
+    let min = Settings.passwordStrengthOptions?.length?.min || 8
+    let max = Settings.passwordStrengthOptions?.length?.max || 72
+    if (max > MAX_BCRYPT_PASSWORD_BYTES) {
+      max = MAX_BCRYPT_PASSWORD_BYTES
+    }
+
+    if (password.length < min) {
       return new InvalidPasswordError({
         message: 'password is too short',
         info: { code: 'too_short' },
       })
     }
-    const passwordLengthError = _validatePasswordNotTooLong(password)
-    if (passwordLengthError) {
-      return passwordLengthError
+    if (Buffer.byteLength(password, 'utf8') > max) {
+      return new InvalidPasswordError({
+        message: 'password is too long',
+        info: { code: 'too_long' },
+      })
     }
     if (!AuthenticationManager._passwordCharactersAreValid(password)) {
       return new InvalidPasswordError({
@@ -397,7 +404,10 @@ const AuthenticationManager = {
       case 'too_long':
         message.key = 'password-too-long'
         message.text = req.i18n.translate('invalid_password_too_long', {
-          maxLength: Settings.passwordStrengthOptions?.length?.max || 72,
+          maxLength: Math.min(
+            Settings.passwordStrengthOptions?.length?.max || 72,
+            MAX_BCRYPT_PASSWORD_BYTES
+          ),
         })
         break
       default:
