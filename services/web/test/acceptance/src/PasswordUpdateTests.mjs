@@ -20,12 +20,13 @@ describe('PasswordUpdate', function () {
   })
   describe('success', function () {
     beforeEach(async function () {
+      this.newPassword = "Password ' \" ` \\ with spaces"
       response = await userHelper.fetch('/user/password/update', {
         method: 'POST',
         body: new URLSearchParams({
           currentPassword: password,
-          newPassword1: 'new-password',
-          newPassword2: 'new-password',
+          newPassword1: this.newPassword,
+          newPassword2: this.newPassword,
         }),
       })
       userHelper = await UserHelper.getUser({ email })
@@ -42,6 +43,14 @@ describe('PasswordUpdate', function () {
       expect(auditLog[0].operation).to.equal('update-password')
       expect(auditLog[0].ipAddress).to.equal('127.0.0.1')
       expect(auditLog[0].timestamp).to.exist
+    })
+
+    it('should allow login with the new password', async function () {
+      const loggedInUser = await UserHelper.loginUser({
+        email,
+        password: this.newPassword,
+      })
+      expect(loggedInUser.user.email).to.equal(email)
     })
   })
   describe('errors', function () {

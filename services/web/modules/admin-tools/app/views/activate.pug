@@ -61,7 +61,9 @@ block content
 							autocomplete='new-password'
 							autofocus
 							required
-							minlength=settings.passwordStrengthOptions.length.min
+							minlength='8'
+							maxlength='72'
+							pattern='[ -~]+'
 						)
 					.actions
 						button.btn.btn-primary(

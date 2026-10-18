@@ -50,8 +50,8 @@ describe('<PasswordSection />', function () {
       JSON.parse(updateMock.callHistory.calls().at(-1)?.options.body as string)
     ).to.deep.equal({
       currentPassword: 'foobar',
-      newPassword1: 'barbaz',
-      newPassword2: 'barbaz',
+      newPassword1: 'barbaz12',
+      newPassword2: 'barbaz12',
     })
   })
 
@@ -81,7 +81,7 @@ describe('<PasswordSection />', function () {
     expect(button.disabled).to.be.true
 
     fireEvent.change(screen.getByLabelText('New password'), {
-      target: { value: 'barbaz' },
+      target: { value: 'barbaz12' },
     })
     expect(button.disabled).to.be.true
 
@@ -92,17 +92,12 @@ describe('<PasswordSection />', function () {
     expect(button.disabled).to.be.true
 
     fireEvent.change(screen.getByLabelText('Confirm new password'), {
-      target: { value: 'barbaz' },
+      target: { value: 'barbaz12' },
     })
     expect(button.disabled).to.be.false
   })
 
   it('sets browser validation attributes', async function () {
-    window.metaAttributesCache.set('ol-passwordStrengthOptions', {
-      length: {
-        min: 3,
-      },
-    })
     render(<PasswordSection />)
 
     const currentPasswordInput = screen.getByLabelText(
@@ -115,7 +110,9 @@ describe('<PasswordSection />', function () {
       'Confirm new password'
     ) as HTMLInputElement
 
-    expect(newPassword1Input.minLength).to.equal(3)
+    expect(newPassword1Input.minLength).to.equal(8)
+    expect(newPassword1Input.maxLength).to.equal(72)
+    expect(newPassword1Input.pattern).to.equal('[ -~]+')
 
     // not required before changes
     expect(currentPasswordInput.required).to.be.false
@@ -126,10 +123,10 @@ describe('<PasswordSection />', function () {
       target: { value: 'foobar' },
     })
     fireEvent.change(newPassword1Input, {
-      target: { value: 'barbaz' },
+      target: { value: 'barbaz12' },
     })
     fireEvent.change(newPassword2Input, {
-      target: { value: 'barbaz' },
+      target: { value: 'barbaz12' },
     })
     expect(currentPasswordInput.required).to.be.true
     expect(newPassword1Input.required).to.be.true
@@ -200,10 +197,10 @@ function submitValidForm() {
     target: { value: 'foobar' },
   })
   fireEvent.change(screen.getByLabelText('New password'), {
-    target: { value: 'barbaz' },
+    target: { value: 'barbaz12' },
   })
   fireEvent.change(screen.getByLabelText('Confirm new password'), {
-    target: { value: 'barbaz' },
+    target: { value: 'barbaz12' },
   })
   fireEvent.click(
     screen.getByRole('button', {

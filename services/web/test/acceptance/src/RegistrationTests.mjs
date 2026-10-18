@@ -267,6 +267,14 @@ describe('Registration', function () {
       expect(user.emails.length).to.equal(1)
       expect(user.emails[0].email).to.equal(this.user.email)
     })
+
+    it('should register and log in with a printable ASCII password', async function () {
+      this.user.password = "Password ' \" ` \\ with spaces"
+      await this.user.register()
+      this.user.resetCookies()
+      await this.user.login()
+      expect(await this.user.isLoggedIn()).to.equal(true)
+    })
   })
 
   describe('LoginViaRegistration', function () {

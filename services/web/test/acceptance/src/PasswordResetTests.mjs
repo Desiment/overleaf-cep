@@ -438,6 +438,21 @@ describe('PasswordReset', function () {
       expect(response.status).to.equal(200)
     })
 
+    it('should set a printable ASCII password that can be used to log in', async function () {
+      const password = "Password ' \" ` \\ with spaces"
+      response = await userHelper.fetch(`/user/password/set`, {
+        method: 'POST',
+        body: new URLSearchParams({
+          password,
+          passwordResetToken: token,
+        }),
+      })
+      expect(response.status).to.equal(200)
+
+      const loggedInUser = await UserHelper.loginUser({ email, password })
+      expect(loggedInUser.user.email).to.equal(email)
+    })
+
     it('should return 400 if password field is missing', async function () {
       response = await userHelper.fetch(`/user/password/set`, {
         method: 'POST',
