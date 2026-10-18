@@ -1,51 +1,78 @@
-name: Build Overleaf image
+name: Build and deploy Overleaf
 
 on:
   push:
     branches:
+      - '**'
+  pull_request:
+    branches:
       - production
-
   workflow_dispatch:
 
 permissions:
   contents: read
-  packages: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/production' }}
 
 env:
-  REGISTRY: ghcr.io
-  BASE_IMAGE: ghcr.io/desiment/overleaf-cep-base
+  BASE_IMAGE: ghcr.io/desiment/overleaf-cep-base@sha256:a3ef61dc2a63eeee574e237702c90dc84819efc63524ac1b8d75c22b5396c06e
   IMAGE: ghcr.io/desiment/overleaf-cep
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-24.04
-
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install Yarn via Corepack
+        run: npm install --global corepack && corepack enable
+      - name: Install dependencies
+        run: yarn install --immutable
+      - name: Document updater unit tests
+        run: yarn workspace @overleaf/document-updater test:unit:_run
+      - name: Authentication unit tests
+        run: yarn workspace @overleaf/web test:unit --run test/unit/src/Authentication/AuthenticationManager.test.mjs
+      - name: Password settings frontend tests
+        env:
+          TEST_NAME_PATTERN: PasswordSection
+        run: yarn workspace @overleaf/web test:frontend
 
+  build:
+    if: github.ref == 'refs/heads/production'
+    permissions:
+      contents: read
+      packages: write
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    outputs:
+      image_ref: ${{ steps.digest.outputs.image_ref }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
       - name: Login to GHCR
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" \
-            | docker login ghcr.io \
-                -u "${{ github.actor }}" \
-                --password-stdin
-
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io \
+            -u "${{ github.actor }}" --password-stdin
       - name: Prepare Docker context
         run: cp server-ce/.dockerignore .dockerignore
-
       - name: Pull base image
-        run: docker pull "${BASE_IMAGE}:production"
-
+        run: docker pull "${BASE_IMAGE}"
       - name: Pull previous image for cache
         continue-on-error: true
         run: docker pull "${IMAGE}:production"
-
       - name: Build Overleaf image
         run: |
           docker build \
             --build-arg BUILDKIT_INLINE_CACHE=1 \
-            --build-arg OVERLEAF_BASE_TAG="${BASE_IMAGE}:production" \
+            --build-arg OVERLEAF_BASE_TAG="${BASE_IMAGE}" \
             --cache-from "${IMAGE}:production" \
             --progress=plain \
             --network=host \
@@ -56,8 +83,49 @@ jobs:
             --tag "${IMAGE}:sha-${GITHUB_SHA}" \
             --tag "${IMAGE}:production" \
             .
-
       - name: Push Overleaf image
         run: |
           docker push "${IMAGE}:sha-${GITHUB_SHA}"
           docker push "${IMAGE}:production"
+      - name: Resolve immutable image digest
+        id: digest
+        run: |
+          digest="$(docker buildx imagetools inspect "${IMAGE}:sha-${GITHUB_SHA}" \
+            --format '{{json .Manifest}}' | jq -r .digest)"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || exit 1
+          echo "image_ref=${IMAGE}@${digest}" >> "$GITHUB_OUTPUT"
+          echo "Publishing ${IMAGE}@${digest}"
+
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/production'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Configure pinned SSH connection
+        shell: bash
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOY_SSH_KEY"
+          test -n "$DEPLOY_KNOWN_HOSTS"
+          install -d -m 0700 "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_SSH_KEY" > "$HOME/.ssh/overleaf_deploy"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 0600 "$HOME/.ssh/overleaf_deploy" "$HOME/.ssh/known_hosts"
+      - name: Deploy by digest with rollback
+        shell: bash
+        env:
+          IMAGE_REF: ${{ needs.build.outputs.image_ref }}
+        run: |
+          set -euo pipefail
+          [[ "$IMAGE_REF" =~ ^ghcr\.io/desiment/overleaf-cep@sha256:[0-9a-f]{64}$ ]]
+          ssh -i "$HOME/.ssh/overleaf_deploy" \
+            -o IdentitiesOnly=yes -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o ConnectTimeout=15 \
+            deploy@77.91.114.21 \
+            "sudo -n /usr/local/sbin/overleaf-deploy '$IMAGE_REF'"
