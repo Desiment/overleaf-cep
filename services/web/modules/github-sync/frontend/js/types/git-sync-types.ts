@@ -14,6 +14,8 @@ export type GitSyncModalStatus =
 export type ProjectSyncState = {
   mergeStatus: 'clean' | 'conflict' | 'diverged' | 'need-export' | 'need-permission'
   repoFullName: string
+  defaultBranchName: string
   unmergedBranchName: string | null
+  isOwner?: boolean
   ownerEmail?: string
 }

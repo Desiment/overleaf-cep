@@ -32,13 +32,14 @@ async function getGitConnState(userId) {
 
 async function getProjectState(userId, projectId) {
   let pss = null
-  const projection = { _id: 0, mergeStatus: 1, repoFullName: 1, unmergedBranchName: 1 }
+  const projection = { _id: 0, mergeStatus: 1, repoFullName: 1, defaultBranchName: 1, unmergedBranchName: 1 }
   pss = await SyncStateManager.getProjectState(projectId, projection)
   if (!pss) {
     pss = { mergeStatus: 'need-export' }
     try {
       const { owner_ref } = await ProjectGetter.promises.getProject(projectId, { owner_ref: 1 })
-      if (owner_ref.toString() !== userId) {
+      pss.isOwner = owner_ref.toString() === userId
+      if (!pss.isOwner) {
         pss.ownerEmail = await UserGetter.promises.getUserEmail(owner_ref)
       }
     } catch (err) {
@@ -46,6 +47,13 @@ async function getProjectState(userId, projectId) {
       logger.error({ err }, "failed get user email")
     }
     return pss
+  }
+  try {
+    const { owner_ref } = await ProjectGetter.promises.getProject(projectId, { owner_ref: 1 })
+    pss.isOwner = owner_ref.toString() === userId
+  } catch (err) {
+    pss.isOwner = false
+    logger.error({ err, userId, projectId }, 'failed to get project owner')
   }
   let canPush
   try {

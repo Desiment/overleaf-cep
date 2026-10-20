@@ -1096,6 +1096,8 @@
   "git_integration_info": "With Git integration, you can clone your Overleaf projects with Git. For full instructions on how to do this, <0>read our Git Integration help page</0>.",
   "github": "GitHub",
   "github_branch": "GitHub branch",
+  "change_github_branch": "Change branch",
+  "change_github_branch_description": "Switching branches will replace the project files with the contents of the selected GitHub branch.",
   "github_commit_message_placeholder": "Commit message for changes made in __appName__...",
   "github_credentials_expired": "Your GitHub authorization credentials have expired",
   "github_empty_repository_error": "It looks like your GitHub repository is empty or not yet available. Create a new file on GitHub.com then try again.",

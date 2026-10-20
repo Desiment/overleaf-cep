@@ -7,7 +7,7 @@ import Csrf from '../../../../app/src/infrastructure/Csrf.mjs'
 import GitHubSyncHandler from './GitHubSyncHandler.mjs'
 import TokenManager from './TokenManager.mjs'
 import api from './GitHubApiClient.mjs'
-import { doGitMerge } from './GitMerge.mjs'
+import { doGitMerge, switchProjectBranch } from './GitMerge.mjs'
 import { InvalidTokenError, GitNotLinkedError, AlreadyExistsError } from './GitSyncErrors.mjs'
 
 async function getConnectionStatus(req, res) {
@@ -227,6 +227,23 @@ async function gitMerge(req, res) {
   }
 }
 
+async function changeBranch(req, res) {
+  const { project_id: projectId } = req.params
+  const userId = SessionManager.getLoggedInUserId(req.session)
+  const { branchName } = req.body || {}
+
+  try {
+    const state = await switchProjectBranch(userId, projectId, branchName)
+    res.json(state)
+  } catch (err) {
+    const info = OError.getFullInfo(err)
+    const errStatus = info?.status || err.status || 500
+    logger.error(OError.getFullStack(err))
+    logger.error({ info, projectId, userId }, 'Error changing GitHub sync branch')
+    return res.status(errStatus).json({ message: err.message })
+  }
+}
+
 // Unlink user's Git server account
 async function unlinkRepo(req, res) {
   const { project_id: projectId } = req.params
@@ -256,5 +273,6 @@ export default {
   exportProject: expressify(exportProject),
   getMergeOverview: expressify(getMergeOverview),
   gitMerge: expressify(gitMerge),
+  changeBranch: expressify(changeBranch),
   unlinkRepo: expressify(unlinkRepo),
 }
