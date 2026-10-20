@@ -49,6 +49,13 @@ export default {
       GitHubSyncController.listUserRepos
     )
 
+    // list branches for a repository
+    webRouter.get(
+      '/user/github-sync/branches',
+      AuthenticationController.requireLogin(),
+      GitHubSyncController.listRepoBranches
+    )
+
     // create a new project from git server repo
     webRouter.post(
       '/project/new/github-sync',

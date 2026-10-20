@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import useAsync from '@/shared/hooks/use-async'
 import { debugConsole } from '@/utils/debugging'
@@ -17,6 +17,9 @@ import {
 import OLButton from '@/shared/components/ol/ol-button'
 import OLSpinner from '@/shared/components/ol/ol-spinner'
 import Notification from '@/shared/components/notification'
+import OLFormGroup from '@/shared/components/ol/ol-form-group'
+import OLFormLabel from '@/shared/components/ol/ol-form-label'
+import OLFormSelect from '@/shared/components/ol/ol-form-select'
 
 type GitSyncRepo = {
   name: string
@@ -27,6 +30,12 @@ type GitSyncRepo = {
 type GitSyncReposResponse = {
   repos?: GitSyncRepo[]
 }
+
+type GitSyncBranchesResponse = {
+  branches: string[]
+}
+
+const EMPTY_REPOS: GitSyncRepo[] = []
 
 function ImportFromGitHubModalContent({ handleHide }: { handleHide: () => void }) {
   const { t } = useTranslation()
@@ -46,7 +55,34 @@ function ImportFromGitHubModalContent({ handleHide }: { handleHide: () => void }
   }, [runAsync])
 
   const reposExist = data?.repos != null
-  const repos = reposExist ? data.repos : []
+  const repos = reposExist ? data.repos : EMPTY_REPOS
+  const [selectedRepoFullName, setSelectedRepoFullName] = useState('')
+  const selectedRepo = repos.find(repo => repo.fullName === selectedRepoFullName)
+
+  const {
+    isLoading: isLoadingBranches,
+    isError: isErrorBranches,
+    data: branchData,
+    runAsync: runAsyncBranches,
+    reset: resetBranches,
+  } = useAsync<GitSyncBranchesResponse>()
+  const [selectedBranch, setSelectedBranch] = useState('')
+
+  useEffect(() => {
+    setSelectedBranch('')
+    resetBranches()
+    if (!selectedRepo) return
+
+    const params = new URLSearchParams({ repo: selectedRepo.fullName })
+    runAsyncBranches(getJSON(`/user/github-sync/branches?${params}`))
+      .then(({ branches }) => {
+        const defaultBranch = selectedRepo.defaultBranchName
+        setSelectedBranch(
+          branches.includes(defaultBranch) ? defaultBranch : branches[0] || ''
+        )
+      })
+      .catch(err => debugConsole.error(err?.data?.message || err?.message || err))
+  }, [resetBranches, runAsyncBranches, selectedRepo, selectedRepoFullName])
 
   const {
     isLoading: isImporting,
@@ -64,11 +100,15 @@ function ImportFromGitHubModalContent({ handleHide }: { handleHide: () => void }
   const showLinkToGitHub = !isImporting && isSuccess && !reposExist
   const showRepos = !isImporting && isSuccess && reposExist
 
-  const handleImport = (repo: GitSyncRepo) => {
+  const handleImport = () => {
+    if (!selectedRepo || !selectedBranch) return
 
     runAsyncImport(
       postJSON('/project/new/github-sync', {
-        body: repo
+        body: {
+          ...selectedRepo,
+          defaultBranchName: selectedBranch,
+        },
       })
     )
       .then(data => {
@@ -132,36 +172,70 @@ function ImportFromGitHubModalContent({ handleHide }: { handleHide: () => void }
                 <p className="text-center">
                   {t('select_github_repository', { appName })}
                 </p>
-                <div className="table-container table-container-bordered">
-                  <table className="table table-striped table-hover">
-                    <tbody>
-                      {repos.map(repo => (
-                        <tr key={repo.fullName}>
-                          <td>
-                            {repo.name}
-                            <div className="small">
-                              <a
-                                href={`https://github.com/${repo.fullName}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                              >
-                                {repo.fullName}
-                              </a>
-                            </div>
-                          </td>
-                          <td className="text-end">
-                            <OLButton
-                              variant="primary"
-                              onClick={() => handleImport(repo)}
-                            >
-                              {t('import_to_sharelatex', { appName: 'Overleaf' })}
-                            </OLButton>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <OLFormGroup>
+                  <OLFormLabel htmlFor="github-sync-repository">
+                    {t('github_repository')}
+                  </OLFormLabel>
+                  <OLFormSelect
+                    id="github-sync-repository"
+                    value={selectedRepoFullName}
+                    onChange={event => setSelectedRepoFullName(event.target.value)}
+                  >
+                    <option value="">{t('select_a_github_repository')}</option>
+                    {repos.map(repo => (
+                      <option key={repo.fullName} value={repo.fullName}>
+                        {repo.name} ({repo.fullName})
+                      </option>
+                    ))}
+                  </OLFormSelect>
+                </OLFormGroup>
+
+                {selectedRepo && (
+                  <>
+                    <OLFormGroup>
+                      <OLFormLabel htmlFor="github-sync-branch">
+                        {t('github_branch')}
+                      </OLFormLabel>
+                      {isLoadingBranches ? (
+                        <span>
+                          <OLSpinner size="sm" className="me-2" />
+                          {t('loading_github_branches')}
+                        </span>
+                      ) : (
+                        <OLFormSelect
+                          id="github-sync-branch"
+                          value={selectedBranch}
+                          disabled={isErrorBranches || !branchData?.branches.length}
+                          onChange={event => setSelectedBranch(event.target.value)}
+                        >
+                          <option value="">{t('select_a_github_branch')}</option>
+                          {branchData?.branches.map(branch => (
+                            <option key={branch} value={branch}>
+                              {branch}
+                            </option>
+                          ))}
+                        </OLFormSelect>
+                      )}
+                    </OLFormGroup>
+
+                    {isErrorBranches && (
+                      <Notification
+                        type="error"
+                        content={t('something_went_wrong_server')}
+                      />
+                    )}
+
+                    <div className="text-end">
+                      <OLButton
+                        variant="primary"
+                        disabled={isLoadingBranches || !selectedBranch}
+                        onClick={handleImport}
+                      >
+                        {t('import_to_sharelatex', { appName: 'Overleaf' })}
+                      </OLButton>
+                    </div>
+                  </>
+                )}
               </>
             )}
           </div>

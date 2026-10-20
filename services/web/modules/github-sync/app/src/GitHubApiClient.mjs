@@ -309,6 +309,39 @@ async function listUserRepos(token) {
   return all
 }
 
+async function _listRepoBranchesPage(token, repoFullName, page) {
+  const [owner, repo] = repoFullName.split('/')
+  const params = new URLSearchParams({
+    page: page.toString(),
+    per_page: MAX_PER_PAGE.toString(),
+  })
+
+  const { json, response } = await fetchGitHubJsonWithResponse(`${GITHUB_API_BASE}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches?${params}`, {
+    headers: buildHeaders(token),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  }, '_listRepoBranchesPage')
+
+  const link = response.headers.get('link') || ''
+  return {
+    branches: json.map(branch => branch.name),
+    hasNext: link.includes('rel="next"'),
+  }
+}
+
+async function listRepoBranches(token, repoFullName) {
+  let all = []
+  let page = 1
+
+  while (true) {
+    const { branches, hasNext } = await _listRepoBranchesPage(token, repoFullName, page)
+    all = all.concat(branches)
+    if (!hasNext) break
+    page++
+  }
+
+  return all
+}
+
 // Git (blobs / trees / commits)
 function uploadBlob(token, repoFullName, buffer) {
   return fetchGitHubJson(`${GITHUB_API_BASE}/repos/${repoFullName}/git/blobs`, {
@@ -478,6 +511,7 @@ export default {
   getPushPermission,
   createRepo,
   listUserRepos,
+  listRepoBranches,
   uploadBlob,
   getBlobStream,
   createTree,
