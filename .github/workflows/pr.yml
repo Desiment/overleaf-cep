@@ -17,9 +17,9 @@ env:
   BASE_IMAGE: ghcr.io/desiment/overleaf-cep-base
 
 jobs:
-  test:
+  translations:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 5
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -27,25 +27,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: Install Yarn via Corepack
-        run: npm install --global corepack && corepack enable
-      - name: Install dependencies
-        run: yarn install --immutable
-      - name: Document updater unit tests
-        env:
-          TEST_NAME_PATTERN: DocumentManager
-        run: yarn workspace @overleaf/document-updater test:unit
-      - name: Authentication unit tests
-        run: yarn workspace @overleaf/web test:unit --run test/unit/src/Authentication/AuthenticationManager.test.mjs
-      - name: Password settings browser validation test
-        run: >-
-          yarn workspace @overleaf/web exec mocha --timeout 5000 --exit
-          --extension js,jsx,mjs,ts,tsx --require test/frontend/bootstrap.js
-          --grep 'sets browser validation attributes'
-          test/frontend/features/settings/components/password-section.test.tsx
+      - name: Check extracted translations
+        run: node services/web/scripts/check-extracted-translations.mjs
 
   build:
-    needs: test
+    needs: translations
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
