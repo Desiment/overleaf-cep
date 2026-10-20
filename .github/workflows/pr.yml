@@ -32,7 +32,17 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable
       - name: Document updater unit tests
-        run: yarn workspace @overleaf/document-updater test:unit:_run
+        env:
+          TEST_NAME_PATTERN: DocumentManager
+        run: yarn workspace @overleaf/document-updater test:unit
+      - name: Authentication unit tests
+        run: yarn workspace @overleaf/web test:unit --run test/unit/src/Authentication/AuthenticationManager.test.mjs
+      - name: Password settings browser validation test
+        run: >-
+          yarn workspace @overleaf/web exec mocha --timeout 5000 --exit
+          --extension js,jsx,mjs,ts,tsx --require test/frontend/bootstrap.js
+          --grep 'sets browser validation attributes'
+          test/frontend/features/settings/components/password-section.test.tsx
 
   build:
     needs: test
