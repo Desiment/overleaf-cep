@@ -9,6 +9,7 @@ import { GitConflictError } from './GitSyncErrors.mjs'
 import TokenManager from './TokenManager.mjs'
 import { ObjectId } from '../../../../app/src/infrastructure/mongodb.mjs'
 import LockManager from '../../../../app/src/infrastructure/LockManager.mjs'
+import ProjectGetter from '../../../../app/src/Features/Project/ProjectGetter.mjs'
 import ProjectEntityHandler from '../../../../app/src/Features/Project/ProjectEntityHandler.mjs'
 import UpdateMerger from '../../../../app/src/Features/ThirdPartyDataStore/UpdateMerger.mjs'
 import DocumentUpdaterHandler from '../../../../app/src/Features/DocumentUpdater/DocumentUpdaterHandler.mjs'
@@ -21,6 +22,90 @@ export async function doGitMerge(userId, projectId, message, claimConflictIsReso
     projectId,
     () => doGitMergeWithoutLock(userId, projectId, message, claimConflictIsResolved)
   )
+}
+
+export async function switchProjectBranch(userId, projectId, branchName) {
+  return await SyncLockManager.promises.runWithLock(
+    'gitSync',
+    projectId,
+    () => switchProjectBranchWithoutLock(userId, projectId, branchName)
+  )
+}
+
+async function switchProjectBranchWithoutLock(userId, projectId, branchName) {
+  if (typeof branchName !== 'string' || branchName.length === 0) {
+    throw createSyncStateError('A branch name is required', 400)
+  }
+
+  const projectSyncState = await SyncStateManager.getProjectState(projectId)
+  if (!projectSyncState) throw createSyncStateError('GitHub is not linked to this project', 404)
+
+  const { owner_ref: ownerRef } = await ProjectGetter.promises.getProject(
+    projectId,
+    { owner_ref: 1 },
+  )
+  if (ownerRef.toString() !== userId) {
+    throw createSyncStateError('Only the project owner can change the GitHub branch', 403)
+  }
+
+  if (projectSyncState.mergeStatus !== 'clean') {
+    throw createSyncStateError('The project must have a clean GitHub sync before changing branches', 409)
+  }
+
+  if (!projectSyncState.defaultBranchName || !projectSyncState.lastSyncCommit) {
+    throw createSyncStateError('The project has an incomplete GitHub sync state', 409)
+  }
+
+  await DocumentUpdaterHandler.promises.flushProjectToMongo(projectId)
+  const currentVersion = await HistoryManager.latestVersion(projectId)
+  if (currentVersion !== projectSyncState.lastSyncVersion) {
+    throw createSyncStateError('Sync the project to GitHub before changing branches', 409)
+  }
+
+  const token = await TokenManager.getUserToken(userId)
+  const currentBranchHead = await api.getBranchHead(
+    token,
+    projectSyncState.repoFullName,
+    projectSyncState.defaultBranchName,
+  )
+  if (currentBranchHead !== projectSyncState.lastSyncCommit) {
+    throw createSyncStateError('Sync the latest GitHub changes before changing branches', 409)
+  }
+
+  const newBranchHead = await api.getBranchHead(
+    token,
+    projectSyncState.repoFullName,
+    branchName,
+  )
+  const lastSyncVersion = await applyGitSnapshotToProject({
+    token,
+    userId,
+    projectId,
+    repoFullName: projectSyncState.repoFullName,
+    lastSyncCommit: newBranchHead,
+  })
+
+  await SyncStateManager.updateProjectState(projectId, {
+    defaultBranchName: branchName,
+    lastSyncCommit: newBranchHead,
+    lastSyncVersion,
+    mergeStatus: 'clean',
+    unmergedBranchName: null,
+    unmergedBranchHead: null,
+    conflictVersion: null,
+  })
+
+  return {
+    defaultBranchName: branchName,
+    lastSyncCommit: newBranchHead,
+    lastSyncVersion,
+  }
+}
+
+function createSyncStateError(message, status) {
+  const error = new Error(message)
+  error.status = status
+  return error
 }
 
 async function doGitMergeWithoutLock(userId, projectId, message, claimConflictIsResolved) {
@@ -483,7 +568,7 @@ async function resolveDetachedSyncState(
 }
 
 // ----------- Helpers
-async function applyGitSnapshotToProject({ token, userId, projectId, repoFullName, lastSyncCommit }) {
+export async function applyGitSnapshotToProject({ token, userId, projectId, repoFullName, lastSyncCommit }) {
 
   const invalidFiles = []
   const updates = []

@@ -1,14 +1,17 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import useAsync from '@/shared/hooks/use-async'
-import { getJSON } from '@/infrastructure/fetch-json'
+import { getJSON, postJSON } from '@/infrastructure/fetch-json'
 import { OLModalBody, OLModalFooter } from '@/shared/components/ol/ol-modal'
 import OLForm from '@/shared/components/ol/ol-form'
 import OLFormGroup from '@/shared/components/ol/ol-form-group'
 import OLFormControl from '@/shared/components/ol/ol-form-control'
+import OLFormLabel from '@/shared/components/ol/ol-form-label'
+import OLFormSelect from '@/shared/components/ol/ol-form-select'
 import OLRow from '@/shared/components/ol/ol-row'
 import OLCol from '@/shared/components/ol/ol-col'
 import OLButton from '@/shared/components/ol/ol-button'
+import OLSpinner from '@/shared/components/ol/ol-spinner'
 import OLIconButton from '@/shared/components/ol/ol-icon-button'
 import Notification from '@/shared/components/notification'
 import { debugConsole } from '@/utils/debugging'
@@ -40,6 +43,10 @@ type UnmergedCommitsResponse = {
   isProjectUpdated: boolean
 }
 
+type BranchesResponse = {
+  branches: string[]
+}
+
 const GitSyncMergeOverviewModal = ({
   handleHide,
   setModalStatus,
@@ -60,6 +67,28 @@ const GitSyncMergeOverviewModal = ({
     runAsync,
   } = useAsync<UnmergedCommitsResponse | null>()
 
+  const [selectedBranch, setSelectedBranch] = useState('')
+  const {
+    data: branchesData,
+    error: branchesError,
+    isLoading: isLoadingBranches,
+    runAsync: runAsyncBranches,
+  } = useAsync<BranchesResponse>()
+  const {
+    error: changeBranchError,
+    isLoading: isChangingBranch,
+    runAsync: runAsyncChangeBranch,
+  } = useAsync()
+
+  const canChangeBranch = Boolean(
+    projectSyncState.isOwner &&
+    isSuccess &&
+    data &&
+    !data.isProjectUpdated &&
+    !data.diverged &&
+    data.commits?.length === 0,
+  )
+
   const loadUnmergedCommits = () => {
     setData({})
 
@@ -77,6 +106,37 @@ const GitSyncMergeOverviewModal = ({
   useEffect(() => {
     loadUnmergedCommits()
   }, [projectId, runAsync])
+
+  useEffect(() => {
+    if (!canChangeBranch) return
+
+    const params = new URLSearchParams({ repo: projectSyncState.repoFullName })
+    runAsyncBranches(getJSON(`/user/github-sync/branches?${params}`))
+      .then(({ branches }) => {
+        const currentBranch = projectSyncState.defaultBranchName
+        setSelectedBranch(
+          branches.includes(currentBranch) ? currentBranch : branches[0] || ''
+        )
+      })
+      .catch(err => debugConsole.error(err?.data?.message || err?.message || err))
+  }, [
+    canChangeBranch,
+    projectSyncState.defaultBranchName,
+    projectSyncState.repoFullName,
+    runAsyncBranches,
+  ])
+
+  const changeBranch = () => {
+    if (!selectedBranch || selectedBranch === projectSyncState.defaultBranchName) return
+
+    runAsyncChangeBranch(
+      postJSON(`/project/${projectId}/github-sync/branch`, {
+        body: { branchName: selectedBranch },
+      })
+    )
+      .then(() => setModalStatus('loading'))
+      .catch(err => debugConsole.error(err?.data?.message || err?.message || err))
+  }
 
   return (
     <>
@@ -163,6 +223,64 @@ const GitSyncMergeOverviewModal = ({
                   </div>
                 ))}
               </div>
+            )}
+
+            {canChangeBranch && (
+              <>
+                <hr />
+                <p>{t('change_github_branch_description')}</p>
+                <OLRow>
+                  <OLCol xs={8}>
+                    <OLFormGroup>
+                      <OLFormLabel htmlFor="github-sync-current-branch">
+                        {t('github_branch')}
+                      </OLFormLabel>
+                      {isLoadingBranches ? (
+                        <span>
+                          <OLSpinner size="sm" className="me-2" />
+                          {t('loading_github_branches')}
+                        </span>
+                      ) : (
+                        <OLFormSelect
+                          id="github-sync-current-branch"
+                          value={selectedBranch}
+                          disabled={Boolean(branchesError) || isChangingBranch}
+                          onChange={event => setSelectedBranch(event.target.value)}
+                        >
+                          <option value="">{t('select_a_github_branch')}</option>
+                          {branchesData?.branches.map(branch => (
+                            <option key={branch} value={branch}>
+                              {branch}
+                            </option>
+                          ))}
+                        </OLFormSelect>
+                      )}
+                    </OLFormGroup>
+                  </OLCol>
+                  <OLCol xs={4} className="d-flex align-items-end">
+                    <OLButton
+                      variant="secondary"
+                      className="mb-3"
+                      disabled={
+                        isLoadingBranches ||
+                        isChangingBranch ||
+                        !selectedBranch ||
+                        selectedBranch === projectSyncState.defaultBranchName
+                      }
+                      onClick={changeBranch}
+                    >
+                      {t('change_github_branch')}
+                    </OLButton>
+                  </OLCol>
+                </OLRow>
+
+                {(branchesError || changeBranchError) && (
+                  <Notification
+                    type="error"
+                    content={t('generic_something_went_wrong')}
+                  />
+                )}
+              </>
             )}
 
             {data.isProjectUpdated && (

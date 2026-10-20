@@ -96,6 +96,14 @@ export default {
       GitHubSyncController.gitMerge
     )
 
+    // change the branch used by GitHub sync
+    webRouter.post(
+      '/project/:project_id/github-sync/branch',
+      AuthenticationController.requireLogin(),
+      AuthorizationMiddleware.ensureUserCanWriteProjectContent,
+      GitHubSyncController.changeBranch
+    )
+
     // unlink Git repo from Git server
     webRouter.delete(
       '/project/:project_id/github-sync',
