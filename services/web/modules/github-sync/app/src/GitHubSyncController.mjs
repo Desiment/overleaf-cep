@@ -65,6 +65,26 @@ async function listUserRepos(req, res) {
   }
 }
 
+async function listRepoBranches(req, res) {
+  const userId = SessionManager.getLoggedInUserId(req.session)
+  const { repo: repoFullName } = req.query
+
+  if (typeof repoFullName !== 'string' || !/^[^/\s]+\/[^/\s]+$/.test(repoFullName)) {
+    return res.status(400).json({ message: 'Invalid repository name' })
+  }
+
+  try {
+    const branches = await GitHubSyncHandler.listRepoBranches(userId, repoFullName)
+    res.json({ branches })
+  } catch (err) {
+    const info = OError.getFullInfo(err)
+    const errStatus = info?.status || 500
+    logger.error(OError.getFullStack(err))
+    logger.error({ userId, repoFullName, info }, 'Failed to get repository branches')
+    return res.status(errStatus).json({ message: err.message })
+  }
+}
+
 async function getMergeOverview(req, res) {
   const { project_id: projectId } = req.params
   const userId = SessionManager.getLoggedInUserId(req.session)
@@ -231,6 +251,7 @@ export default {
   getUserAndOrgs: expressify(getUserAndOrgs),
   oauth2Callback: expressify(oauth2Callback),
   listUserRepos: expressify(listUserRepos),
+  listRepoBranches: expressify(listRepoBranches),
   importRepo: expressify(importRepo),
   exportProject: expressify(exportProject),
   getMergeOverview: expressify(getMergeOverview),

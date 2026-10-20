@@ -96,6 +96,11 @@ async function listUserRepos(userId) {
   return await api.listUserRepos(token)
 }
 
+async function listRepoBranches(userId, repoFullName) {
+  const token = await TokenManager.getUserToken(userId)
+  return await api.listRepoBranches(token, repoFullName)
+}
+
 async function getUserAndOrgs(userId) {
   const token = await TokenManager.getUserToken(userId)
   return await api.getUserAndOrgs(token)
@@ -236,6 +241,7 @@ export default {
   importRepo,
   getGitConnState,
   listUserRepos,
+  listRepoBranches,
   getUserAndOrgs,
   getMergeOverview,
 }
